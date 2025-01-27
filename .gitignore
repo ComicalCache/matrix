@@ -1,0 +1,5 @@
+/target
+/libs/*.*
+/libs/objs/*.*
+!/libs/.keep
+!/libs/objs/.keep
