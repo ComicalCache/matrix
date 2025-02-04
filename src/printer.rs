@@ -111,11 +111,11 @@ impl Printer {
                 self.set_pos(row, self.streaks[streak_idx].col(), c, COLORS[char_idx])?;
             }
 
-            // advance streak (wrapping)
-            self.streaks[streak_idx].extend(self.size.rows);
-
             if self.streaks[streak_idx].is_dead() {
                 self.dead_streaks.push(idx);
+            } else {
+                // advance streak (wrapping)
+                self.streaks[streak_idx].extend(self.size.rows);
             }
         }
 

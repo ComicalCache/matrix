@@ -45,7 +45,7 @@ impl NumberStreak {
         self.head_pos.row %= row_limit;
 
         if self.val_tail == STREAK_LENGTH {
-            // 0.5% chance of death process starting
+            // 1% chance of death process starting
             // if death process started, continue every time iter is called
             if self.val_head != 0 || self.xoshiro256p.next() % 100 >= 99 {
                 self.vals[self.val_head] = ' ';
@@ -74,7 +74,7 @@ impl NumberStreak {
     pub fn is_dead(&self) -> bool {
         // this implies that the entire vals array has been replaced with spaces
         // "fading out" the streak
-        self.val_tail == self.val_head
+        STREAK_LENGTH == self.val_head
     }
 }
 
