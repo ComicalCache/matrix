@@ -7,12 +7,6 @@ const CHARS: [char; 16] = [
 ];
 
 #[derive(Default, Clone, Copy)]
-pub struct Pos {
-    pub col: u16,
-    pub row: u16,
-}
-
-#[derive(Default, Clone, Copy)]
 pub struct NumberStreak {
     /// Alphanumeric characters of the streak
     vals: [char; STREAK_LENGTH],
@@ -21,15 +15,15 @@ pub struct NumberStreak {
 
     val_iter_head: usize,
 
-    /// Position of the streak head
-    head_pos: Pos,
+    /// Position of the streak head (col, pos)
+    head_pos: (u16, u16),
 
     /// Random number generator
     xoshiro256p: Xoshiro256pState,
 }
 
 impl NumberStreak {
-    pub fn init(&mut self, head_pos: Pos, seed: u64) {
+    pub fn init(&mut self, head_pos: (u16, u16), seed: u64) {
         self.val_tail = 0;
         self.val_head = 0;
 
@@ -41,8 +35,8 @@ impl NumberStreak {
     }
 
     pub fn extend(&mut self, row_limit: u16) {
-        self.head_pos.row += 1;
-        self.head_pos.row %= row_limit;
+        self.head_pos.1 += 1;
+        self.head_pos.1 %= row_limit;
 
         if self.val_tail == STREAK_LENGTH {
             // 1% chance of death process starting
@@ -60,11 +54,11 @@ impl NumberStreak {
     }
 
     pub fn col(&self) -> u16 {
-        self.head_pos.col
+        self.head_pos.0
     }
 
     pub fn row(&self) -> u16 {
-        self.head_pos.row
+        self.head_pos.1
     }
 
     pub fn len(&self) -> u16 {

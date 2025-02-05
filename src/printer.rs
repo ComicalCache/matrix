@@ -2,14 +2,14 @@ use std::io::{Stdout, Write, stdout};
 
 use termion::{
     color::{self, Rgb},
-    cursor::{self, DetectCursorPos},
-    raw::IntoRawMode,
+    cursor::{self, HideCursor},
+    screen::{AlternateScreen, IntoAlternateScreen},
     terminal_size,
 };
 
 use crate::{
     IOResult,
-    number_streak::{NumberStreak, Pos, STREAK_LENGTH},
+    number_streak::{NumberStreak, STREAK_LENGTH},
     xoshiro256p::Xoshiro256pState,
 };
 
@@ -44,8 +44,8 @@ pub struct Printer {
     initialized_streaks: Vec<usize>,
     dead_streaks: Vec<usize>,
 
-    /// stdout handle
-    stdout: Stdout,
+    /// stdout handle in alternative screen
+    stdout: HideCursor<AlternateScreen<Stdout>>,
 
     /// Random number generator
     xoshiro256p: Xoshiro256pState,
@@ -53,8 +53,8 @@ pub struct Printer {
 
 /// Public methods
 impl Printer {
-    pub fn new() -> Self {
-        Self {
+    pub fn new() -> Result<Self, std::io::Error> {
+        let mut printer = Printer {
             size: (0, 0),
             size_changed: false,
 
@@ -63,28 +63,16 @@ impl Printer {
             initialized_streaks: Vec::new(),
             dead_streaks: Vec::new(),
 
-            stdout: stdout(),
+            stdout: HideCursor::from(
+                stdout()
+                    .into_alternate_screen()
+                    .expect("Failed to create alternative screen"),
+            ),
 
             xoshiro256p: Xoshiro256pState::new(0xdeadbeef),
-        }
-    }
+        };
 
-    pub fn init(&mut self) -> IOResult {
-        self.fetch_size()?;
-        self.scroll_up()?;
-        write!(&mut self.stdout, "{}", cursor::Hide)?;
-        self.reinit()
-    }
-
-    pub fn deinit(&mut self) -> IOResult {
-        let reset = color::Reset;
-        write!(
-            &mut self.stdout,
-            "{}{}{}",
-            cursor::Show,
-            reset.fg_str(),
-            reset.bg_str()
-        )
+        printer.init().map(|_| printer)
     }
 
     pub fn tick(&mut self) -> IOResult {
@@ -128,12 +116,12 @@ impl Printer {
 
         // initialize streaks after re-initing vector or removing streak
         if let Some(idx) = self.pending_streaks.pop() {
-            let pos = Pos {
-                // random row
-                row: self.xoshiro256p.next() as u16 % self.size.1,
+            let pos = (
                 // col determined by shuffled idxs vector + transmute for skipped cols
-                col: (idx as u16 * 2) + 1,
-            };
+                (idx as u16 * 2) + 1,
+                // random row
+                self.xoshiro256p.next() as u16 % self.size.1,
+            );
 
             self.streaks[idx].init(pos, self.xoshiro256p.next());
             self.initialized_streaks.push(idx);
@@ -147,20 +135,9 @@ impl Printer {
 
 /// Private methods
 impl Printer {
-    fn scroll_up(&mut self) -> IOResult {
-        let mut raw = stdout().into_raw_mode().unwrap();
-        let (_, row) = raw.cursor_pos()?;
-        write!(&mut raw, "{}", termion::scroll::Up(row))
-    }
-
-    fn fetch_size(&mut self) -> IOResult {
-        let old_size = self.size;
-
-        self.size = terminal_size()?;
-
-        self.size_changed = self.size != old_size;
-
-        Ok(())
+    fn init(&mut self) -> IOResult {
+        self.fetch_size()?;
+        self.reinit()
     }
 
     fn reinit(&mut self) -> IOResult {
@@ -180,6 +157,14 @@ impl Printer {
 
             self.pending_streaks.swap(idx, jdx);
         }
+
+        Ok(())
+    }
+
+    fn fetch_size(&mut self) -> IOResult {
+        let old_size = self.size;
+        self.size = terminal_size()?;
+        self.size_changed = self.size != old_size;
 
         Ok(())
     }

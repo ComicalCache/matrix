@@ -16,8 +16,7 @@ static mut RUN: bool = true;
 fn main() -> IOResult {
     ctrlc::set_handler(move || unsafe { RUN = false }).expect("Failed to install signal handler");
 
-    let mut printer = Printer::new();
-    printer.init()?;
+    let mut printer = Printer::new()?;
 
     // main loop
     while unsafe { RUN } {
@@ -26,5 +25,5 @@ fn main() -> IOResult {
         sleep(Duration::from_millis(25));
     }
 
-    printer.deinit()
+    Ok(())
 }

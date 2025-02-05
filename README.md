@@ -9,8 +9,7 @@ For 1337 Haxors only!
 ---
 
 Blazingly fast™️ ⚡️ matrix-esque number rain, similar to [cmatrix](https://github.com/abishekvashok/cmatrix).
-Automatically resizes with your terminal and gracefully shuts down at SIGHUP, SIGINT and SIGTERM signals,
-resetting all color and cursor settings.
+Automatically resizes with your terminal.
 
 > Should work on all UNIX systems; will likely never work on Windows 🚮
 

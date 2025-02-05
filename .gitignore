@@ -3,3 +3,5 @@
 /libs/objs/*.*
 !/libs/.keep
 !/libs/objs/.keep
+.DS_Store
+*/.DS_Store
