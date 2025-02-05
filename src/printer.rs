@@ -1,38 +1,40 @@
 use std::io::{Stdout, Write, stdout};
 
+use termion::{
+    color::{self, Rgb},
+    cursor::{self, DetectCursorPos},
+    raw::IntoRawMode,
+    terminal_size,
+};
+
 use crate::{
-    IOResult, c,
+    IOResult,
     number_streak::{NumberStreak, Pos, STREAK_LENGTH},
-    rgb_color::RGBColor,
-    win_size::WinSize,
     xoshiro256p::Xoshiro256pState,
 };
 
-const COLORS: [RGBColor; STREAK_LENGTH] = [
-    RGBColor(5, 225, 19),
-    RGBColor(34, 213, 25),
-    RGBColor(46, 201, 30),
-    RGBColor(54, 189, 34),
-    RGBColor(59, 178, 37),
-    RGBColor(63, 166, 39),
-    RGBColor(65, 155, 41),
-    RGBColor(66, 144, 43),
-    RGBColor(66, 133, 44),
-    RGBColor(66, 122, 45),
-    RGBColor(65, 112, 46),
-    RGBColor(63, 101, 46),
-    RGBColor(61, 91, 46),
-    RGBColor(59, 81, 46),
-    RGBColor(56, 71, 46),
-    RGBColor(52, 61, 46),
+const COLORS: [Rgb; STREAK_LENGTH] = [
+    Rgb(5, 225, 19),
+    Rgb(34, 213, 25),
+    Rgb(46, 201, 30),
+    Rgb(54, 189, 34),
+    Rgb(59, 178, 37),
+    Rgb(63, 166, 39),
+    Rgb(65, 155, 41),
+    Rgb(66, 144, 43),
+    Rgb(66, 133, 44),
+    Rgb(66, 122, 45),
+    Rgb(65, 112, 46),
+    Rgb(63, 101, 46),
+    Rgb(61, 91, 46),
+    Rgb(59, 81, 46),
+    Rgb(56, 71, 46),
+    Rgb(52, 61, 46),
 ];
 
 pub struct Printer {
-    /// Background color
-    background: RGBColor,
-
     /// Terminal size
-    size: WinSize,
+    size: (u16, u16),
     size_changed: bool,
 
     /// Streaks to be drawn
@@ -41,9 +43,6 @@ pub struct Printer {
     pending_streaks: Vec<usize>,
     initialized_streaks: Vec<usize>,
     dead_streaks: Vec<usize>,
-
-    /// TTY file descriptor (needed for ioctl)
-    tty_fd: i32,
 
     /// stdout handle
     stdout: Stdout,
@@ -54,19 +53,15 @@ pub struct Printer {
 
 /// Public methods
 impl Printer {
-    pub fn new(tty_fd: i32, background: RGBColor) -> Self {
+    pub fn new() -> Self {
         Self {
-            background,
-
-            size: WinSize::default(),
+            size: (0, 0),
             size_changed: false,
 
             streaks: Vec::new(),
             pending_streaks: Vec::new(),
             initialized_streaks: Vec::new(),
             dead_streaks: Vec::new(),
-
-            tty_fd,
 
             stdout: stdout(),
 
@@ -76,14 +71,20 @@ impl Printer {
 
     pub fn init(&mut self) -> IOResult {
         self.fetch_size()?;
-        self.reinit()?;
-        self.hide_cursor()
+        self.scroll_up()?;
+        write!(&mut self.stdout, "{}", cursor::Hide)?;
+        self.reinit()
     }
 
     pub fn deinit(&mut self) -> IOResult {
-        self.show_cursor()?;
-        self.reset_fg_color()?;
-        self.reset_bg_color()
+        let reset = color::Reset;
+        write!(
+            &mut self.stdout,
+            "{}{}{}",
+            cursor::Show,
+            reset.fg_str(),
+            reset.bg_str()
+        )
     }
 
     pub fn tick(&mut self) -> IOResult {
@@ -115,7 +116,7 @@ impl Printer {
                 self.dead_streaks.push(idx);
             } else {
                 // advance streak (wrapping)
-                self.streaks[streak_idx].extend(self.size.rows);
+                self.streaks[streak_idx].extend(self.size.1);
             }
         }
 
@@ -129,7 +130,7 @@ impl Printer {
         if let Some(idx) = self.pending_streaks.pop() {
             let pos = Pos {
                 // random row
-                row: self.xoshiro256p.next() as u16 % self.size.rows,
+                row: self.xoshiro256p.next() as u16 % self.size.1,
                 // col determined by shuffled idxs vector + transmute for skipped cols
                 col: (idx as u16 * 2) + 1,
             };
@@ -146,13 +147,16 @@ impl Printer {
 
 /// Private methods
 impl Printer {
+    fn scroll_up(&mut self) -> IOResult {
+        let mut raw = stdout().into_raw_mode().unwrap();
+        let (_, row) = raw.cursor_pos()?;
+        write!(&mut raw, "{}", termion::scroll::Up(row))
+    }
+
     fn fetch_size(&mut self) -> IOResult {
         let old_size = self.size;
 
-        match unsafe { c::ioctl(self.tty_fd, c::tiocgwinsz, &mut self.size) } {
-            0 => {}
-            err => return Err(std::io::Error::other(format!("ioctl: {err}"))),
-        }
+        self.size = terminal_size()?;
 
         self.size_changed = self.size != old_size;
 
@@ -164,9 +168,9 @@ impl Printer {
 
         // only fill every other column and skip the first and last one
         self.streaks
-            .resize_with((self.size.cols as usize - 2) / 2, Default::default);
+            .resize_with((self.size.0 as usize - 2) / 2, Default::default);
 
-        self.pending_streaks = (0..(self.size.cols as usize - 2) / 2).collect();
+        self.pending_streaks = (0..(self.size.0 as usize - 2) / 2).collect();
         self.initialized_streaks.clear();
 
         // "shuffle" number idxs by permutating elements
@@ -181,59 +185,27 @@ impl Printer {
     }
 
     fn clear_pos(&mut self, row: u16, col: u16) -> IOResult {
-        write!(&mut self.stdout, "{} ", Printer::set_cursor(row, col),)
+        write!(&mut self.stdout, "{} ", cursor::Goto(col + 1, row + 1))
     }
 
-    fn set_pos(&mut self, row: u16, col: u16, c: char, rgb: RGBColor) -> IOResult {
-        let pos = Printer::set_cursor(row, col);
-        write!(&mut self.stdout, "{pos}{}{c}", Printer::set_fg_color(rgb))
+    fn set_pos(&mut self, row: u16, col: u16, c: char, rgb: Rgb) -> IOResult {
+        let pos = cursor::Goto(col + 1, row + 1);
+        write!(&mut self.stdout, "{pos}{}{c}", color::Fg(rgb))
     }
 
     fn set_background(&mut self) -> IOResult {
-        let pos = Printer::set_cursor(0, 0);
-        let fill = " ".repeat(self.size.cols as usize * self.size.rows as usize);
-        let background = Printer::set_bg_color(self.background);
+        let pos = cursor::Goto(1, 1);
+        let fill = " ".repeat(self.size.0 as usize * self.size.1 as usize);
+        let background = color::Bg(Rgb(20, 20, 20));
 
         write!(&mut self.stdout, "{pos}{background}{fill}")
-    }
-
-    fn show_cursor(&mut self) -> IOResult {
-        write!(&mut self.stdout, "\x1b[?25h")
-    }
-
-    fn hide_cursor(&mut self) -> IOResult {
-        write!(&mut self.stdout, "\x1b[?25l")
-    }
-
-    fn reset_fg_color(&mut self) -> IOResult {
-        write!(&mut self.stdout, "\x1b[39m")
-    }
-
-    fn reset_bg_color(&mut self) -> IOResult {
-        write!(&mut self.stdout, "\x1b[49m")
     }
 
     fn wrapping_row_div(&self, lhs: u16, rhs: u16) -> u16 {
         if lhs >= rhs {
             lhs - rhs
         } else {
-            self.size.rows + lhs - rhs
+            self.size.1 + lhs - rhs
         }
-    }
-}
-
-/// Private static functions
-impl Printer {
-    /// Coordinates start at 0
-    fn set_cursor(row: u16, col: u16) -> String {
-        format!("\x1b[{};{}H", row + 1, col + 1)
-    }
-
-    fn set_bg_color(color: RGBColor) -> String {
-        format!("\x1b[48;2;{};{};{}m", color.0, color.1, color.2)
-    }
-
-    fn set_fg_color(color: RGBColor) -> String {
-        format!("\x1b[38;2;{};{};{}m", color.0, color.1, color.2)
     }
 }

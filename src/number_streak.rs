@@ -8,8 +8,8 @@ const CHARS: [char; 16] = [
 
 #[derive(Default, Clone, Copy)]
 pub struct Pos {
-    pub row: u16,
     pub col: u16,
+    pub row: u16,
 }
 
 #[derive(Default, Clone, Copy)]
