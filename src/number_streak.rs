@@ -1,19 +1,17 @@
-use crate::xoshiro256p::Xoshiro256pState;
+use std::ops::Index;
 
-pub const STREAK_LENGTH: usize = 16;
+use crate::xoshiro256p::Xoshiro256pState;
 
 const CHARS: [char; 16] = [
     '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
 ];
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone)]
 pub struct NumberStreak {
     /// Alphanumeric characters of the streak
-    vals: [char; STREAK_LENGTH],
+    vals: Vec<char>,
     val_tail: usize,
     val_head: usize,
-
-    val_iter_head: usize,
 
     /// Position of the streak head (col, pos)
     head_pos: (u16, u16),
@@ -23,11 +21,11 @@ pub struct NumberStreak {
 }
 
 impl NumberStreak {
-    pub fn init(&mut self, head_pos: (u16, u16), seed: u64) {
+    pub fn init(&mut self, head_pos: (u16, u16), max_len: usize, seed: u64) {
+        self.vals.resize(max_len, ' ');
+
         self.val_tail = 0;
         self.val_head = 0;
-
-        self.val_iter_head = 0;
 
         self.head_pos = head_pos;
 
@@ -38,10 +36,9 @@ impl NumberStreak {
         self.head_pos.1 += 1;
         self.head_pos.1 %= row_limit;
 
-        if self.val_tail == STREAK_LENGTH {
-            // 1% chance of death process starting
+        if self.val_tail == self.vals.len() {
             // if death process started, continue every time iter is called
-            if self.val_head != 0 || self.xoshiro256p.next() % 100 >= 99 {
+            if self.val_head != 0 || self.xoshiro256p.next() & 0x3ff >= 1015 {
                 self.vals[self.val_head] = ' ';
                 self.val_head += 1;
             }
@@ -68,21 +65,14 @@ impl NumberStreak {
     pub fn is_dead(&self) -> bool {
         // this implies that the entire vals array has been replaced with spaces
         // "fading out" the streak
-        STREAK_LENGTH == self.val_head
+        self.vals.len() == self.val_head
     }
 }
 
-impl Iterator for NumberStreak {
-    type Item = char;
+impl Index<usize> for NumberStreak {
+    type Output = char;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.val_iter_head >= self.val_tail {
-            self.val_iter_head = 0;
-            return None;
-        }
-
-        let val = self.vals[self.val_iter_head];
-        self.val_iter_head += 1;
-        Some(val)
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.vals[index]
     }
 }

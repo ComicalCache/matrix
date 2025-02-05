@@ -7,30 +7,9 @@ use termion::{
     terminal_size,
 };
 
-use crate::{
-    IOResult,
-    number_streak::{NumberStreak, STREAK_LENGTH},
-    xoshiro256p::Xoshiro256pState,
-};
+use colorgrad::{Color, Gradient, GradientBuilder, LinearGradient};
 
-const COLORS: [Rgb; STREAK_LENGTH] = [
-    Rgb(5, 225, 19),
-    Rgb(34, 213, 25),
-    Rgb(46, 201, 30),
-    Rgb(54, 189, 34),
-    Rgb(59, 178, 37),
-    Rgb(63, 166, 39),
-    Rgb(65, 155, 41),
-    Rgb(66, 144, 43),
-    Rgb(66, 133, 44),
-    Rgb(66, 122, 45),
-    Rgb(65, 112, 46),
-    Rgb(63, 101, 46),
-    Rgb(61, 91, 46),
-    Rgb(59, 81, 46),
-    Rgb(56, 71, 46),
-    Rgb(52, 61, 46),
-];
+use crate::{IOResult, number_streak::NumberStreak, xoshiro256p::Xoshiro256pState};
 
 pub struct Printer {
     /// Terminal size
@@ -39,10 +18,14 @@ pub struct Printer {
 
     /// Streaks to be drawn
     streaks: Vec<NumberStreak>,
+    streak_len: usize,
 
     pending_streaks: Vec<usize>,
     initialized_streaks: Vec<usize>,
     dead_streaks: Vec<usize>,
+
+    /// Streak colors
+    colors: Vec<Rgb>,
 
     /// stdout handle in alternative screen
     stdout: HideCursor<AlternateScreen<Stdout>>,
@@ -59,9 +42,13 @@ impl Printer {
             size_changed: false,
 
             streaks: Vec::new(),
+            streak_len: 0,
+
             pending_streaks: Vec::new(),
             initialized_streaks: Vec::new(),
             dead_streaks: Vec::new(),
+
+            colors: Vec::new(),
 
             stdout: HideCursor::from(
                 stdout()
@@ -95,9 +82,11 @@ impl Printer {
             self.clear_pos(row, self.streaks[streak_idx].col())?;
 
             // draw streak, this must never break the loop!
-            for (char_idx, c) in self.streaks[streak_idx].enumerate() {
-                let row = self.wrapping_row_div(self.streaks[streak_idx].row(), char_idx as u16);
-                self.set_pos(row, self.streaks[streak_idx].col(), c, COLORS[char_idx])?;
+            let len = self.streaks[streak_idx].len() as usize;
+            for jdx in 0..len {
+                let row = self.wrapping_row_div(self.streaks[streak_idx].row(), jdx as u16);
+                let char = self.streaks[streak_idx][jdx];
+                self.set_pos(row, self.streaks[streak_idx].col(), char, self.colors[jdx])?;
             }
 
             if self.streaks[streak_idx].is_dead() {
@@ -123,7 +112,7 @@ impl Printer {
                 self.xoshiro256p.next() as u16 % self.size.1,
             );
 
-            self.streaks[idx].init(pos, self.xoshiro256p.next());
+            self.streaks[idx].init(pos, self.streak_len, self.xoshiro256p.next());
             self.initialized_streaks.push(idx);
         }
 
@@ -142,6 +131,32 @@ impl Printer {
 
     fn reinit(&mut self) -> IOResult {
         self.set_background()?;
+
+        // adjust streak len for new terminal size
+        self.streak_len = (self.size.1 as f32 * 0.25) as usize;
+
+        self.colors.resize(self.streak_len, Rgb(0, 0, 0));
+
+        // regenerate color gradient
+        let gradient: LinearGradient = GradientBuilder::new()
+            .colors(&[
+                Color::from_rgba8(5, 225, 19, 255),
+                Color::from_rgba8(52, 61, 49, 255),
+            ])
+            .build()
+            .expect("Failed to build gradient");
+
+        let (min, max) = gradient.domain();
+        let delta = max - min;
+        let lower = self.streak_len as f32 - 1.;
+        for (idx, color) in (0..self.streak_len)
+            .map(|i| min + (i as f32 * delta) / lower)
+            .map(|t| gradient.at(t).to_rgba8())
+            .map(|[r, g, b, _]| Rgb(r, g, b))
+            .enumerate()
+        {
+            self.colors[idx] = color;
+        }
 
         // only fill every other column and skip the first and last one
         self.streaks

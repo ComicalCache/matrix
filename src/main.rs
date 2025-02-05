@@ -1,8 +1,6 @@
 use core::time::Duration;
 use std::thread::sleep;
 
-use ctrlc;
-
 mod printer;
 use printer::Printer;
 

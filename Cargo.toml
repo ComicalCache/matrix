@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 termion = "4.0.3"
 ctrlc = { version = "3.4.5", features = ["termination"] }
+colorgrad = "0.7.0"
